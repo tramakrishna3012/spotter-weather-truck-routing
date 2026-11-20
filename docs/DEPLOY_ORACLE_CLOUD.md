@@ -40,18 +40,25 @@ Serving both the React SPA and `/api/*` under **one HTTPS domain** gives same-or
 
 ---
 
-## Step 3 — Point Your Free Domain (GitHub Student Pack) to OCI
+## Step 3 — Point Your Subdomain in Cloudflare DNS to OCI
 
-Using your free 1-year domain from **Name.com**, **Namecheap (`.me`)**, or **`.TECH`** (GitHub Student Developer Pack):
-1. Open your domain registrar's DNS settings.
-2. Add an **`A` record**:
-   - **Host / Name:** `spotter` (for `spotter.yourdomain.tech`) or `@` (for root domain)
-   - **Value / Target:** `<YOUR_OCI_PUBLIC_IPV4>`
-   - **TTL:** `300` (5 minutes)
-3. Verify DNS propagation before starting Caddy:
+If your domain is managed on **Cloudflare DNS** (e.g., `tramakrishna.codes`):
+
+1. Log in to [Cloudflare Dashboard](https://dash.cloudflare.com/) → select your domain → **DNS → Records → Add record**.
+2. Create an **`A` record** for your subdomain:
+   - **Type:** `A`
+   - **Name:** `spotter` *(this creates `spotter.<your-domain>`)*
+   - **IPv4 address:** `<YOUR_OCI_PUBLIC_IPV4>`
+   - **Proxy status:** **DNS only (Grey Cloud)** first *(recommended so Caddy automatically issues your Let's Encrypt TLS certificate on port 80/443 without redirect loops)*.
+   - **TTL:** `Auto`
+3. Click **Save**.
+4. *(Optional — if you later turn on Cloudflare Orange Cloud Proxy)*: Go to **SSL/TLS → Overview** and set Encryption Mode to **Full (strict)** — **never** use **Flexible**, or browsers will hit `ERR_TOO_MANY_REDIRECTS`.
+5. Verify DNS propagation before starting Caddy:
    ```bash
-   dig +short spotter.yourdomain.tech
+   dig +short spotter.<your-domain>
    ```
+
+*(Alternatively, run `./deploy/oracle/configure-env.sh` after Step 4 to generate `.env` interactively and start the stack automatically.)*
 
 ---
 
