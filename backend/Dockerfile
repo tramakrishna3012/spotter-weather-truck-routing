@@ -45,6 +45,6 @@ USER spotter
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -fsS "http://127.0.0.1:${PORT}/api/v1/health/live" || exit 1
+    CMD curl -fsS "http://127.0.0.1:${PORT:-8000}/api/v1/health/live" || exit 1
 
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--threads", "2", "--timeout", "60", "--graceful-timeout", "30", "--access-logfile", "-", "--error-logfile", "-"]
+CMD ["sh", "-c", "exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-2} --threads ${GUNICORN_THREADS:-2} --timeout 60 --graceful-timeout 30 --access-logfile - --error-logfile -"]

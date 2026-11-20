@@ -1,0 +1,174 @@
+# Production Docker Compose stack for Oracle Cloud Always Free (ARM64 Ampere A1 & AMD64).
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d --build
+# Optional async Celery worker:
+#   docker compose -f docker-compose.prod.yml --profile async up -d --build
+#
+# All secrets and operational settings MUST come from your local gitignored `.env` file.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-spotter}
+      POSTGRES_USER: ${POSTGRES_USER:-spotter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-spotter} -d ${POSTGRES_DB:-spotter}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      [
+        "redis-server",
+        "--save",
+        "60",
+        "1000",
+        "--appendonly",
+        "yes",
+        "--maxmemory",
+        "${REDIS_MAXMEMORY:-128mb}",
+        "--maxmemory-policy",
+        "allkeys-lru",
+        "--requirepass",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}",
+      ]
+    volumes:
+      - redisdata_prod:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
+      DATABASE_URL: postgres://${POSTGRES_USER:-spotter}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-spotter}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-2}
+      PORT: "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    command:
+      - sh
+      - -c
+      - >-
+        python manage.py migrate --noinput &&
+        python manage.py collectstatic --noinput &&
+        exec gunicorn config.wsgi:application
+        --bind 0.0.0.0:8000
+        --workers ${WEB_CONCURRENCY:-2}
+        --threads ${GUNICORN_THREADS:-2}
+        --timeout 60
+        --graceful-timeout 30
+        --access-logfile -
+        --error-logfile -
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/v1/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles:
+      - async
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
+      ENABLE_ASYNC_PLANNING: "true"
+      DATABASE_URL: postgres://${POSTGRES_USER:-spotter}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-spotter}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+    command:
+      - sh
+      - -c
+      - exec celery -A config worker -l info --concurrency=${PLANNING_CONCURRENCY:-2}
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Empty base URL = same-origin `/api/v1/*` routed cleanly by Caddy over HTTPS.
+        VITE_API_BASE_URL: ""
+        VITE_MAP_STYLE_URL: ${VITE_MAP_STYLE_URL:-}
+        VITE_MAP_PUBLIC_TOKEN: ${VITE_MAP_PUBLIC_TOKEN:-}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN must be set in .env (e.g. spotter.yourdomain.tech)}
+      ACME_EMAIL: ${ACME_EMAIL:-ops@example.com}
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata_prod:
+  redisdata_prod:
+  caddy_data:
+  caddy_config:

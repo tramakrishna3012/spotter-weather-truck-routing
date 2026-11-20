@@ -1,0 +1,77 @@
+name: Deploy to Oracle Cloud (OCI)
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_async_worker:
+        description: "Start optional Celery async worker profile"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+concurrency:
+  group: deploy-oracle-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & Deploy on OCI VM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Validate required deployment secrets
+        env:
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
+          OCI_DEPLOY_PATH: ${{ secrets.OCI_DEPLOY_PATH }}
+        run: |
+          for VAR in OCI_HOST OCI_USER OCI_SSH_KEY OCI_DEPLOY_PATH; do
+            if [ -z "${!VAR}" ]; then
+              echo "Missing required GitHub Actions secret: ${VAR}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Configure SSH key
+        env:
+          OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${OCI_SSH_KEY}" > ~/.ssh/oci_deploy
+          chmod 600 ~/.ssh/oci_deploy
+          ssh-keyscan -H "${OCI_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Pull latest main and redeploy containers on OCI
+        env:
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_DEPLOY_PATH: ${{ secrets.OCI_DEPLOY_PATH }}
+          ENABLE_ASYNC: ${{ inputs.enable_async_worker }}
+        run: |
+          ssh -i ~/.ssh/oci_deploy -o StrictHostKeyChecking=yes "${OCI_USER}@${OCI_HOST}" \
+            bash -s -- "${OCI_DEPLOY_PATH}" "${ENABLE_ASYNC}" <<'EOF'
+            set -euo pipefail
+            DEPLOY_PATH="$1"
+            ENABLE_ASYNC="$2"
+            cd "${DEPLOY_PATH}"
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+            if [ ! -f .env ]; then
+              echo "Missing .env in ${DEPLOY_PATH}. Create it from .env.example before deploying." >&2
+              exit 1
+            fi
+            if [ "${ENABLE_ASYNC}" = "true" ]; then
+              docker compose -f docker-compose.prod.yml --profile async up -d --build --remove-orphans
+            else
+              docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+            fi
+            docker compose -f docker-compose.prod.yml ps
+          EOF

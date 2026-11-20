@@ -1,0 +1,39 @@
+{
+	email {$ACME_EMAIL:ops@example.com}
+}
+
+{$DOMAIN::80} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Block Prometheus metrics on public internet (scrape over loopback/private network only).
+	handle /metrics* {
+		respond "Forbidden" 403
+	}
+
+	# Route API traffic directly to Django/Gunicorn so X-Forwarded-Proto stays accurate.
+	handle /api/* {
+		reverse_proxy backend:8000 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 60s
+			}
+		}
+	}
+
+	# Serve React + TypeScript SPA from Nginx container (same-origin with /api/*).
+	handle {
+		reverse_proxy frontend:80
+	}
+}
