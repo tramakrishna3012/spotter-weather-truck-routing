@@ -1,0 +1,191 @@
+@import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
+@import "./tokens.css";
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  * {
+    box-sizing: border-box;
+    border-color: var(--color-border);
+  }
+
+  /* High-visibility focus ring distinct from hazard colors */
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom restrained scrollbars for side rail */
+.spotter-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+.spotter-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.spotter-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.spotter-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-strong);
+  border-radius: 999px;
+}
+
+/* Precision Range Slider (ForecastTimeline) */
+.spotter-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.spotter-slider:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.spotter-slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.spotter-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6.5px;
+  border-radius: 999px;
+  background: var(--color-brand-deep);
+  border: 2.5px solid var(--color-surface);
+  box-shadow: 0 2px 6px rgba(7, 40, 44, 0.24), 0 0 0 1px rgba(7, 61, 69, 0.2);
+  transition: transform var(--duration-feedback) var(--ease-standard),
+    background-color var(--duration-feedback) var(--ease-standard);
+}
+
+.spotter-slider::-webkit-slider-thumb:hover {
+  background: var(--color-brand-action);
+  transform: scale(1.08);
+}
+
+.spotter-slider::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.spotter-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--color-brand-deep);
+  border: 2.5px solid var(--color-surface);
+  box-shadow: 0 2px 6px rgba(7, 40, 44, 0.24), 0 0 0 1px rgba(7, 61, 69, 0.2);
+  transition: transform var(--duration-feedback) var(--ease-standard),
+    background-color var(--duration-feedback) var(--ease-standard);
+}
+
+.spotter-slider::-moz-range-thumb:hover {
+  background: var(--color-brand-action);
+  transform: scale(1.08);
+}
+
+/* Quiet surface transitions */
+.spotter-panel-enter {
+  animation: spotterFadeSlide var(--duration-panel) var(--ease-enter) both;
+}
+
+@keyframes spotterFadeSlide {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Static restrained skeleton (zero 10-second shimmer; respects reduced motion) */
+.spotter-skeleton {
+  background-color: var(--color-surface-muted);
+  border-radius: 8px;
+}
+
+/* MapLibre clean attribution & controls alignment */
+.maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.86) !important;
+  color: var(--color-ink-secondary) !important;
+  font-size: 11px !important;
+  border-radius: 8px !important;
+  padding: 2px 7px !important;
+  margin: 8px !important;
+  box-shadow: var(--shadow-subtle) !important;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--color-brand-action) !important;
+}
+
+.maplibregl-canvas:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+/* Visually hidden helper for screen-reader live regions & labels */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

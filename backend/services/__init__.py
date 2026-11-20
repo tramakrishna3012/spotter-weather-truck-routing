@@ -1,0 +1,1 @@
+"""Spotter application services package."""

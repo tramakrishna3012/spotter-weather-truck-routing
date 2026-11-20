@@ -1,0 +1,174 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Python 3.11 / Django)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      APP_ENV: test
+      DATA_MODE: fixture
+      DJANGO_DEBUG: "false"
+      DJANGO_SECRET_KEY: "ci-ephemeral-test-only-django-key-not-used-in-prod"
+      ALLOWED_HOSTS: "localhost,127.0.0.1,testserver"
+      FRONTEND_ORIGIN: "http://localhost:5173"
+      DJANGO_CORS_ALLOWED_ORIGINS: "http://localhost:5173"
+      SESSION_COOKIE_SECURE: "false"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/pyproject.toml"
+
+      - name: Install backend dependencies
+        run: uv sync --all-extras
+
+      - name: Lint with ruff
+        run: uv run ruff check .
+
+      - name: Type-check with mypy
+        run: uv run mypy .
+
+      - name: Run Django system checks
+        run: uv run python manage.py check
+
+      - name: Check for missing migrations
+        run: uv run python manage.py makemigrations --check --dry-run
+
+      - name: Run pytest
+        run: uv run pytest -v
+
+  frontend:
+    name: Frontend (Node 24 / React / Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      VITE_API_BASE_URL: "http://localhost:8000"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Type-check frontend
+        run: npm run typecheck
+
+      - name: Run unit & component tests
+        run: npm run test -- --run
+
+      - name: Build production bundle
+        run: npm run build
+
+  security-hygiene:
+    name: Security & Infrastructure Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify no .env secret files are tracked in git
+        run: |
+          set -euo pipefail
+          TRACKED_ENV=$(git ls-files | grep -E '(^|/)\.env(\.|$)' | grep -vE '(^|/)\.env\.example$' || true)
+          if [ -n "$TRACKED_ENV" ]; then
+            echo "::error::Tracked .env file(s) detected in repository:"
+            echo "$TRACKED_ENV"
+            exit 1
+          fi
+          echo "OK: No .env files are tracked in git."
+
+      - name: Scan tracked files for accidentally committed secrets
+        run: |
+          python3 - <<'PY'
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          tracked = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
+
+          # Patterns built cleanly to detect real leaked credentials without self-matching.
+          patterns = [
+              ("Private key material", re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")),
+              ("AWS access key ID", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+              ("GitHub personal access token", re.compile(r"\b(?:ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})\b")),
+              ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+              ("Slack token", re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b")),
+              (
+                  "Non-empty provider API key assignment",
+                  re.compile(
+                      r"^(?:HERE_API_KEY|OPEN_METEO_API_KEY)\s*=\s*(?!$|['\"]?(?:<|YOUR_|REPLACE_|CHANGE_ME|PLACEHOLDER))[^\s#]{8,}",
+                      re.MULTILINE,
+                  ),
+              ),
+          ]
+
+          skip_paths = {".github/workflows/ci.yml"}
+          skip_suffixes = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".zip", ".woff", ".woff2"}
+
+          findings = []
+          for rel_path in tracked:
+              if rel_path in skip_paths:
+                  continue
+              path = Path(rel_path)
+              if path.suffix.lower() in skip_suffixes or not path.is_file():
+                  continue
+              try:
+                  content = path.read_text(encoding="utf-8")
+              except UnicodeDecodeError:
+                  continue
+              for label, regex in patterns:
+                  if regex.search(content):
+                      findings.append(f"{rel_path}: potential {label}")
+
+          if findings:
+              print("::error::Potential secret(s) detected in tracked files:")
+              for item in findings:
+                  print(f"  - {item}")
+              sys.exit(1)
+
+          print(f"OK: Scanned {len(tracked)} tracked files; no secret patterns found.")
+          PY
+
+      - name: Validate docker-compose.yml configuration
+        run: |
+          docker compose config -q
+          docker compose --profile async config -q
+          echo "OK: docker-compose.yml is valid (default and async profiles)."

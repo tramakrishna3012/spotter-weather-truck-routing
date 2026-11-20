@@ -1,0 +1,120 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-spotter}
+      POSTGRES_USER: ${POSTGRES_USER:-spotter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-spotter_local_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-spotter} -d $${POSTGRES_DB:-spotter}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATA_MODE: ${DATA_MODE:-fixture}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-dev-insecure-change-in-production}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
+      DJANGO_CORS_ALLOWED_ORIGINS: ${DJANGO_CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgres://${POSTGRES_USER:-spotter}:${POSTGRES_PASSWORD:-spotter_local_dev}@postgres:5432/${POSTGRES_DB:-spotter}}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
+      ENABLE_ASYNC_PLANNING: ${ENABLE_ASYNC_PLANNING:-false}
+      PLANNING_CONCURRENCY: ${PLANNING_CONCURRENCY:-4}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             if command -v gunicorn >/dev/null 2>&1; then
+               exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout ${GUNICORN_TIMEOUT:-60};
+             else
+               exec python manage.py runserver 0.0.0.0:8000;
+             fi"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles:
+      - async
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATA_MODE: ${DATA_MODE:-fixture}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-dev-insecure-change-in-production}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgres://${POSTGRES_USER:-spotter}:${POSTGRES_PASSWORD:-spotter_local_dev}@postgres:5432/${POSTGRES_DB:-spotter}}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
+      ENABLE_ASYNC_PLANNING: "true"
+      PLANNING_CONCURRENCY: ${PLANNING_CONCURRENCY:-4}
+    command: ["sh", "-c", "exec celery -A config worker -l info --concurrency=${PLANNING_CONCURRENCY:-4}"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${DOCKER_VITE_API_BASE_URL:-}
+        VITE_MAP_STYLE_URL: ${VITE_MAP_STYLE_URL:-}
+        VITE_MAP_PUBLIC_TOKEN: ${VITE_MAP_PUBLIC_TOKEN:-}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
