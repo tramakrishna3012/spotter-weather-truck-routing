@@ -1,0 +1,34 @@
+# Local credentials and development secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# React/Node
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Python/Django
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.py[cod]
+*.sqlite3
+staticfiles/
+media/
+
+# Local and operating-system files
+.DS_Store
+Thumbs.db
+*.log
+.cache/
