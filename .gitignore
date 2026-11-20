@@ -23,6 +23,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.py[cod]
+*.egg-info/
 *.sqlite3
 staticfiles/
 media/
