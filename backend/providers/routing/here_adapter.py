@@ -81,7 +81,7 @@ class HereRouteProvider:
             "origin": f"{origin.latitude:.6f},{origin.longitude:.6f}",
             "destination": f"{destination.latitude:.6f},{destination.longitude:.6f}",
             "alternatives": str(max(0, max_routes - 1)),
-            "return": "polyline,summary,travelSummary,spans",
+            "return": "polyline,summary,travelSummary",
             "spans": "length,duration",
             "departureTime": dep_iso,
             "apiKey": self._api_key,
