@@ -134,7 +134,7 @@ jobs:
               (
                   "Non-empty provider API key assignment",
                   re.compile(
-                      r"^(?:HERE_API_KEY|OPEN_METEO_API_KEY)\s*=\s*(?!$|['\"]?(?:<|YOUR_|REPLACE_|CHANGE_ME|PLACEHOLDER))[^\s#]{8,}",
+                      r"^(?:HERE_API_KEY|OPEN_METEO_API_KEY)\s*=\s*(?!$|['\"]?(?:<|\$\{|YOUR_|REPLACE_|CHANGE_ME|PLACEHOLDER))[^\s#]{8,}",
                       re.MULTILINE,
                   ),
               ),
@@ -167,8 +167,16 @@ jobs:
           print(f"OK: Scanned {len(tracked)} tracked files; no secret patterns found.")
           PY
 
-      - name: Validate docker-compose.yml configuration
+      - name: Validate Docker Compose configurations & deploy scripts
         run: |
           docker compose config -q
           docker compose --profile async config -q
-          echo "OK: docker-compose.yml is valid (default and async profiles)."
+          touch .env
+          DOMAIN=example.com POSTGRES_PASSWORD=ci-dummy REDIS_PASSWORD=ci-dummy \
+            docker compose -f docker-compose.prod.yml config -q
+          DOMAIN=example.com POSTGRES_PASSWORD=ci-dummy REDIS_PASSWORD=ci-dummy \
+            docker compose -f docker-compose.prod.yml --profile async config -q
+          rm -f .env
+          bash -n deploy/oracle/bootstrap-ubuntu.sh
+          bash -n deploy/oracle/configure-env.sh
+          echo "OK: All Docker Compose files and deploy scripts are valid."
