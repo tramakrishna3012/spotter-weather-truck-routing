@@ -40,6 +40,8 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY --chown=spotter:spotter . /app
 
+RUN mkdir -p /app/staticfiles && chown -R spotter:spotter /app
+
 USER spotter
 
 EXPOSE 8000
