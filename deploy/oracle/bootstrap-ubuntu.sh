@@ -28,7 +28,7 @@ apt-get install -y --no-install-recommends \
 echo "==> [2/4] Installing Docker Engine & Docker Compose plugin..."
 if ! command -v docker >/dev/null 2>&1; then
   install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  curl -fsSL --proto '=https' --tlsv1.2 https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
   chmod a+r /etc/apt/keyrings/docker.gpg
   ARCH="$(dpkg --print-architecture)"
   CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME}")"
